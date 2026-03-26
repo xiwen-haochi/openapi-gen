@@ -1,0 +1,11 @@
+.vscode/
+.agents/
+.claude/
+
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
