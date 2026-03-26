@@ -1,6 +1,6 @@
 # openapi-gen (English)
 
-> VS Code Copilot skill that auto-generates OpenAPI 3.1.0 specs + Redoc docs from source code
+> Tool that auto-generates OpenAPI 3.1.0 specs + Redoc docs from source code
 
 ## Features
 
@@ -25,11 +25,7 @@
 ## Installation
 
 ```bash
-# Via skills.sh (recommended)
-skills install gh:your-username/openapi-gen
-
-# Or manually copy into your project
-cp -r openapi-gen/ your-project/.agents/skills/openapi-gen
+npx skills add xiwen-haochi/openapi-gen
 ```
 
 ## Usage
@@ -43,7 +39,7 @@ Generate OpenAPI spec for this project
 The skill will automatically detect the tech stack, scan all endpoints, and generate:
 
 ```
-openapi_gen/
+.openapi_gen/
 ├── openapi.yaml   # OpenAPI 3.1.0 specification
 └── index.html     # Redoc visualization page
 ```
@@ -51,9 +47,9 @@ openapi_gen/
 ### View the docs
 
 ```bash
-npx serve openapi_gen
+npx serve .openapi_gen
 # or
-python -m http.server -d openapi_gen
+python -m http.server -d .openapi_gen
 ```
 
 Open `http://localhost:3000` (or `8000`) in your browser.

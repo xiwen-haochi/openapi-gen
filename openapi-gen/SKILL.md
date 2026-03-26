@@ -18,7 +18,7 @@ description: >-
 
 按以下 7 个步骤顺序执行，不可跳过。
 
-### Step 1: 识别项目技术栈
+### Step 1: 识别项目技术栈 & 规模评估
 
 扫描项目根目录，确定编程语言和框架：
 
@@ -32,7 +32,28 @@ description: >-
 | `*.csproj` / `*.sln` / `.cs` | C# | ASP.NET Core, ABP, NancyFX |
 | `Cargo.toml` / `.rs` | Rust | Axum, Actix Web, Rocket |
 
-确定具体框架后，记录下来，继续下一步。
+确定具体框架后，记录下来。
+
+**规模评估（决定生成模式）：**
+
+统计项目中的控制器/路由文件数量和模型/DTO 文件数量，估算接口总数：
+
+| 文件类型 | 统计目标 | 估算系数 |
+|----------|----------|----------|
+| `*Controller.java` / `*Resource.java` | 控制器数 | × 4 ≈ 接口数 |
+| `*_handler.go` / `*_router.go` | 处理器数 | × 3 ≈ 接口数 |
+| `views.py` / `*_view.py` | 视图数 | × 3 ≈ 接口数 |
+| `*.controller.ts` / `*.router.ts` | 控制器数 | × 4 ≈ 接口数 |
+| `*Controller.php` | 控制器数 | × 4 ≈ 接口数 |
+| `*Controller.cs` | 控制器数 | × 4 ≈ 接口数 |
+| `*_handler.rs` | 处理器数 | × 3 ≈ 接口数 |
+
+**模式选择：**
+
+- **估算接口数 ≤ 50 且模型文件 ≤ 80** → 使用**标准模式**（Step 3 ~ Step 7 按原流程执行）
+- **估算接口数 > 50 或模型文件 > 80** → 使用**分批模式**（Step 3 ~ Step 7 按下方分批流程执行）
+
+向用户报告评估结果，例如："检测到约 120 个接口、45 个模型，将采用分批生成模式以确保完整性。"
 
 ### Step 2: 加载框架参考文件
 
@@ -76,6 +97,36 @@ description: >-
 - 接口中文描述（从注释、函数名、类名推断）
 - 认证方式（Bearer Token / API Key / Cookie 等，用于 securitySchemes）
 
+#### 分批模式下的 Step 3
+
+当 Step 1 评估为分批模式时，Step 3 拆分为两个子步骤以避免 token 溢出：
+
+**Step 3A — 路由索引（轻量扫描）：**
+
+快速扫描所有路由注册和控制器，只提取每个接口的最小信息，逐行写入 `.openapi_gen/_work/endpoints.jsonl`：
+
+```jsonl
+{"method": "GET", "path": "/users/{id}", "tags": ["用户管理"], "summary": "查询用户详情", "source_file": "src/controller/UserController.java", "line": 45}
+{"method": "POST", "path": "/users", "tags": ["用户管理"], "summary": "创建用户", "source_file": "src/controller/UserController.java", "line": 62}
+```
+
+此步只做路径发现、不深入提取参数和请求/响应体细节，token 消耗极低。完成后在 `.openapi_gen/_work/metadata.json` 中记录接口总数和进度。
+
+**Step 3B — 分批参数提取：**
+
+按 tags 或控制器文件对接口分组，每批处理 20~30 个接口：
+
+1. 读取当前批次涉及的控制器源文件
+2. 提取每个接口的完整参数（路径参数、查询参数、请求头、请求体、响应体）
+3. 将提取结果更新到 `endpoints.jsonl` 中对应行（覆盖原有简要记录）
+4. 在 `metadata.json` 中更新已完成批次
+5. **释放当前批次的源码上下文**，不带入下一批
+
+重复直到所有批次完成。每批完成后可运行预检确认中间数据结构正确：
+```bash
+python <skill-path>/scripts/validate.py --jsonl .openapi_gen/_work
+```
+
 ### Step 4: 提取数据模型
 
 从代码中提取所有与 API 相关的数据模型：
@@ -96,6 +147,21 @@ description: >-
 - 中文注释（从代码注释推断）
 - 示例值（从代码中的测试数据、默认值或合理推断）
 
+#### 分批模式下的 Step 4
+
+**Step 4A — 模型发现：**
+
+扫描所有 DTO / VO / Model / Entity 目录，每个模型逐行写入 `.openapi_gen/_work/schemas.jsonl`：
+
+```jsonl
+{"name": "UserDTO", "type": "object", "description": "用户信息传输对象", "fields": [{"name": "id", "type": "integer", "format": "int64", "description": "用户唯一标识", "required": true, "example": 1001}]}
+{"name": "CreateUserRequest", "type": "object", "description": "创建用户请求", "fields": [...]}
+```
+
+**Step 4B — 分批字段提取：**
+
+如果模型文件过多（> 80 个），按目录分批读取，每批提取字段细节后写入 `schemas.jsonl`，与 Step 3B 同理释放上下文。
+
 ### Step 5: 组织接口分类（Tags）
 
 根据代码中的模块划分（包名、目录结构、控制器分组）来组织 tags：
@@ -106,19 +172,38 @@ description: >-
 
 ### Step 6: 组装 OpenAPI YAML
 
-将上述信息组装为完整的 OpenAPI 3.1.0 YAML 文件。严格遵循下方的输出规范。
+**标准模式**：将上述信息在上下文中直接组装为完整的 OpenAPI 3.1.0 YAML 文件，严格遵循下方的输出规范。
+
+**分批模式**：调用本技能 `scripts/merge.py` 从 JSONL 中间文件组装 YAML，无需再在上下文中拼装全量内容：
+
+```bash
+python <skill-path>/scripts/merge.py .openapi_gen/_work --output .openapi_gen/openapi.yaml
+```
+
+合并脚本会自动：
+- 从 `endpoints.jsonl` 构建 `paths`
+- 从 `schemas.jsonl` 构建 `components/schemas`
+- 从 `metadata.json` 读取 `info`、`servers`、`tags`、`securitySchemes`
+- 添加通用 ErrorResponse（如不存在）
+- 输出完整的 OpenAPI 3.1.0 YAML
+
+合并完成后，检查脚本输出的接口数和模型数是否与预期一致。如有遗漏，回到 Step 3B 补充后重新合并。
 
 ### Step 7: 输出文件与验证
 
-1. 在用户项目根目录下创建 `openapi_gen/` 目录
-2. 将生成的 OpenAPI YAML 写入 `openapi_gen/openapi.yaml`
-3. 将本技能 `assets/redoc.html` 模板复制到 `openapi_gen/index.html`
+1. 在用户项目根目录下创建 `.openapi_gen/` 目录
+2. 将生成的 OpenAPI YAML 写入 `.openapi_gen/openapi.yaml`
+3. 将本技能 `assets/redoc.html` 模板复制到 `.openapi_gen/index.html`
 4. **运行验证脚本**：执行本技能 `scripts/validate.py` 对生成的 YAML 进行结构校验：
    ```bash
-   python <skill-path>/scripts/validate.py openapi_gen/openapi.yaml
+   python <skill-path>/scripts/validate.py .openapi_gen/openapi.yaml
    ```
    如果验证报错，根据错误信息修正 YAML 后重新验证，直至通过
-5. 告知用户：用浏览器直接打开 `openapi_gen/index.html` 即可查看可视化文档（需要通过本地 HTTP 服务，如 `npx serve openapi_gen` 或 `python -m http.server -d openapi_gen`）
+5. （分批模式）清理工作目录——执行本技能 `scripts/cleanup.py` 删除中间文件：
+   ```bash
+   python <skill-path>/scripts/cleanup.py .openapi_gen
+   ```
+6. 告知用户：用浏览器直接打开 `.openapi_gen/index.html` 即可查看可视化文档（需要通过本地 HTTP 服务，如 `npx serve .openapi_gen` 或 `python -m http.server -d .openapi_gen`）
 
 ---
 
@@ -400,3 +485,10 @@ components:
 5. **响应完整性**：每个接口至少包含一个成功响应（200/201/204）和常见错误响应
 6. **引用正确性**：所有 `$ref` 路径格式正确且指向存在的定义
 7. **YAML 有效性**：缩进正确，无语法错误，可被标准 YAML 解析器正确解析
+
+### 分批模式额外检查
+
+8. **批次完整性**：`metadata.json` 中所有批次均已标记完成，无遗漏批次
+9. **接口计数**：`merge.py` 输出的接口数与 Step 3A 中发现的总数一致
+10. **模型计数**：`merge.py` 输出的模型数与 Step 4A 中发现的总数一致
+11. **JSONL 预检**：`validate.py --jsonl` 通过，无引用缺失

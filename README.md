@@ -1,6 +1,6 @@
 # openapi-gen
 
-> 从源代码自动生成 OpenAPI 3.1.0 规范文件 + Redoc 可视化文档的 VS Code Copilot 技能
+> 从源代码自动生成 OpenAPI 3.1.0 规范文件 + Redoc 可视化文档的技能
 
 ---
 
@@ -11,6 +11,7 @@
 - **全覆盖**：递归扫描路由注册、控制器注解、中间件路由，不遗漏任何接口
 - **可视化**：同时生成 Redoc HTML 页面，一键预览接口文档
 - **自动校验**：内置验证脚本，确保生成的 YAML 结构合法、引用完整
+- **大型项目支持**：接口超过 50 个时自动切换分批模式，通过 JSONL 中间文件分批提取、脚本合并，避免 token 溢出
 
 ## 支持框架
 
@@ -27,11 +28,7 @@
 ## 安装
 
 ```bash
-# 通过 skills.sh 安装（推荐）
-skills install gh:你的用户名/openapi-gen
-
-# 或手动复制到项目
-cp -r openapi-gen/ 你的项目/.agents/skills/openapi-gen
+npx skills add xiwen-haochi/openapi-gen
 ```
 
 ## 使用
@@ -45,7 +42,7 @@ cp -r openapi-gen/ 你的项目/.agents/skills/openapi-gen
 技能会自动识别项目技术栈，扫描所有接口，在项目根目录生成：
 
 ```
-openapi_gen/
+.openapi_gen/
 ├── openapi.yaml   # OpenAPI 3.1.0 规范
 └── index.html     # Redoc 可视化页面
 ```
@@ -53,9 +50,9 @@ openapi_gen/
 ### 查看文档
 
 ```bash
-npx serve openapi_gen
+npx serve .openapi_gen
 # 或
-python -m http.server -d openapi_gen
+python -m http.server -d .openapi_gen
 ```
 
 浏览器打开 `http://localhost:3000`（或 `8000`）即可查看。
@@ -76,7 +73,9 @@ openapi-gen/
 │   ├── csharp.md
 │   └── rust.md
 └── scripts/
-    └── validate.py        # YAML 验证脚本
+    ├── validate.py        # YAML 验证脚本
+    ├── merge.py           # JSONL 合并脚本（大型项目分批模式）
+    └── cleanup.py         # 清理 _work 工作目录
 ```
 
 ## 许可证
